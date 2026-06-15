@@ -256,10 +256,30 @@ const startBot = async () => {
     // Connect to MongoDB
     await connectDB();
 
-    // Start polling
-    await bot.launch();
-    console.log('🤖 ClipCoreBot is running...');
-    await logger.info('Bot started successfully');
+    const WEBHOOK_URL = process.env.WEBHOOK_URL || process.env.RENDER_EXTERNAL_URL;
+    const port = process.env.PORT || 3000;
+
+    if (WEBHOOK_URL) {
+      // Webhook mode (for Web Services)
+      const hookPath = `/bot${process.env.BOT_TOKEN}`;
+      await bot.launch({
+        webhook: {
+          domain: WEBHOOK_URL,
+          port: Number(port),
+          hookPath,
+        },
+      });
+
+      console.log(`🤖 ClipCoreBot started (webhook) at ${WEBHOOK_URL}${hookPath} on port ${port}`);
+      await logger.info(`Bot started (webhook) at ${WEBHOOK_URL}${hookPath}`);
+    } else {
+      // Polling mode (Background Worker)
+      await bot.telegram.deleteWebhook().catch(() => {});
+      await bot.launch({ dropPendingUpdates: true });
+
+      console.log('🤖 ClipCoreBot started (polling/long-poll).');
+      await logger.info('Bot started (polling)');
+    }
   } catch (error) {
     console.error('❌ Failed to start bot:', error);
     await logger.error('Bot startup failed', error);
