@@ -4,8 +4,8 @@ const path = require('path');
 const fs = require('fs-extra');
 const logger = require('../utils/logger');
 
-// Use full path to yt-dlp on Windows
-const ytDlpPath = 'C:\\Users\\Acer\\AppData\\Roaming\\Python\\Python313\\Scripts\\yt-dlp.exe';
+// Prefer an env-provided yt-dlp path, fallback to system `yt-dlp` in PATH
+const ytDlpPath = process.env.YT_DLP_PATH || 'yt-dlp';
 const ytDlp = new YtDlpWrap(ytDlpPath);
 const TEMP_DIR = path.join(__dirname, '../../temp');
 

@@ -25,9 +25,9 @@ C:\Users\Acer\AppData\Roaming\Python\Python313\Scripts\
 ```
 
 ### ✅ Fixed #3: Updated Service Files
-Modified to use full path to `yt-dlp.exe`:
-- `src/services/instagramService.js` - Uses full path
-- `src/services/tiktokService.js` - Uses full path
+Modified to prefer an environment-provided `YT_DLP_PATH` or fall back to a system `yt-dlp` executable in `PATH`:
+- `src/services/instagramService.js` - Uses `process.env.YT_DLP_PATH || 'yt-dlp'`
+- `src/services/tiktokService.js` - Uses `process.env.YT_DLP_PATH || 'yt-dlp'`
 
 ## Files Updated
 - `src/services/instagramService.js` - Line 7: Added ytDlpPath
@@ -39,8 +39,9 @@ Modified to use full path to `yt-dlp.exe`:
 
 ### Test 1: Check yt-dlp
 ```bash
-C:\Users\Acer\AppData\Roaming\Python\Python313\Scripts\yt-dlp.exe --version
-# Output: 2026.06.09 ✓
+yt-dlp --version
+# or if you set `YT_DLP_PATH`:
+$YT_DLP_PATH --version
 ```
 
 ### Test 2: Start the Bot
@@ -95,7 +96,7 @@ C:\Users\Acer\AppData\Roaming\Python\Python313\Scripts\yt-dlp.exe
 ### Service Configuration
 ```javascript
 // src/services/instagramService.js
-const ytDlpPath = 'C:\\Users\\Acer\\AppData\\Roaming\\Python\\Python313\\Scripts\\yt-dlp.exe';
+const ytDlpPath = process.env.YT_DLP_PATH || 'yt-dlp';
 const ytDlp = new YtDlpWrap(ytDlpPath);
 ```
 
