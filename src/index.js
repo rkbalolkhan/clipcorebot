@@ -14,7 +14,17 @@ const { saveRequest, updateRequestStatus } = require('./utils/requestTracker');
 // Initialize bot
 const bot = new Telegraf(process.env.BOT_TOKEN);
 
-let userAwaitingAudioConversion = new Set();
+setInterval(() => {
+  const now = Date.now();
+
+  for (const [userId, timestamp] of userAwaitingAudioConversion.entries()) {
+    if (now - timestamp > 5 * 60 * 1000) {
+      userAwaitingAudioConversion.delete(userId);
+    }
+  }
+}, 60000);
+
+let userAwaitingAudioConversion = new Map();
 
 // Error handler
 bot.catch((err) => {
@@ -83,21 +93,37 @@ bot.command('mp3', async (ctx) => {
     console.error('Error saving mp3 command request:', error);
   }
 
-  userAwaitingAudioConversion.add(userId);
+  userAwaitingAudioConversion.set(userId, Date.now());
   await ctx.reply('🎵 Send a video file or Instagram/TikTok link to convert to MP3.');
 });
 
 // Handle incoming messages
+
+bot.command("ping", async (ctx) => {
+  await ctx.reply("🏓 Pong!");
+});
+
+bot.command("version", async (ctx) => {
+  await ctx.reply("ClipCoreBot v1.0.0");
+});
+
 bot.on('message', async (ctx) => {
   const userId = ctx.from.id;
   const username = ctx.from.username || ctx.from.first_name || 'Unknown';
 
   try {
     // Update last used time
-    await User.updateOne(
-      { telegramId: userId.toString() },
-      { $set: { lastUsedAt: new Date() } }
-    );
+   await User.updateOne(
+     { telegramId: userId.toString() },
+     {
+       $set: {
+         lastUsedAt: new Date(),
+       },
+     },
+     {
+       upsert: true,
+     },
+   );
   } catch (error) {
     console.error('Error updating user:', error);
   }
@@ -114,36 +140,42 @@ bot.on('message', async (ctx) => {
         await saveRequest({
           userId: userId.toString(),
           username,
-          requestType: 'mp3_conversion',
+          requestType: "mp3_conversion",
           url: ctx.message.text,
-          status: 'failed',
-          errorMessage: 'Invalid URL',
+          status: "failed",
+          errorMessage: "Invalid URL",
         });
 
-        await ctx.reply('❌ Invalid URL. Please send an Instagram or TikTok link.');
+        await ctx.reply(
+          "❌ Invalid URL. Please send an Instagram or TikTok link.",
+        );
         userAwaitingAudioConversion.delete(userId.toString());
         return;
       }
+
+      let request;
 
       try {
         // Save initial request
         const request = await saveRequest({
           userId: userId.toString(),
           username,
-          requestType: 'mp3_conversion',
+          requestType: "mp3_conversion",
           platform: validation.platform,
           url: ctx.message.text,
-          status: 'processing',
+          status: "processing",
         });
 
-        const processingMsg = await ctx.reply('⏳ Downloading and converting...');
+        const processingMsg = await ctx.reply(
+          "⏳ Downloading and converting...",
+        );
 
         // Import services
-        const instagramService = require('./services/instagramService');
-        const tiktokService = require('./services/tiktokService');
+        const instagramService = require("./services/instagramService");
+        const tiktokService = require("./services/tiktokService");
 
         let videoPath;
-        if (validation.platform === 'instagram') {
+        if (validation.platform === "instagram") {
           videoPath = await instagramService.download(ctx.message.text);
         } else {
           videoPath = await tiktokService.download(ctx.message.text);
@@ -152,17 +184,17 @@ bot.on('message', async (ctx) => {
         const audioPath = await audioService.convertToMP3(videoPath);
 
         // Get file size
-        const fs = require('fs-extra');
+        const fs = require("fs-extra");
         const stats = await fs.stat(audioPath);
 
         await ctx.replyWithAudio(
           { source: audioPath },
-          { caption: '✅ MP3 conversion complete!' }
+          { caption: "✅ MP3 conversion complete!" },
         );
 
         // Update request with success
         const processingTime = Date.now() - startTime;
-        await updateRequestStatus(request._id, 'success', null, processingTime);
+        await updateRequestStatus(request._id, "success", null, processingTime);
 
         await deleteFile(videoPath);
         await deleteFile(audioPath);
@@ -173,9 +205,17 @@ bot.on('message', async (ctx) => {
       } catch (error) {
         // Update request with error
         const processingTime = Date.now() - startTime;
-        await updateRequestStatus(request._id, 'failed', error.message, processingTime);
 
-        await ctx.reply('❌ Conversion failed. Please try again.');
+        if (request) {
+          await updateRequestStatus(
+            request._id,
+            "failed",
+            error.message,
+            processingTime,
+          );
+        }
+
+        await ctx.reply("❌ Conversion failed. Please try again.");
         userAwaitingAudioConversion.delete(userId.toString());
         await logger.error(`MP3 conversion error for user ${userId}`, error);
       }
@@ -184,54 +224,72 @@ bot.on('message', async (ctx) => {
     else if (ctx.message.video || ctx.message.document) {
       const startTime = Date.now();
 
+      let request;
+
       try {
         // Save initial request
         const request = await saveRequest({
           userId: userId.toString(),
           username,
-          requestType: 'mp3_conversion',
-          fileType: ctx.message.video ? 'mp4' : 'file',
-          status: 'processing',
+          requestType: "mp3_conversion",
+          fileType: ctx.message.video ? "mp4" : "file",
+          status: "processing",
         });
 
-        const processingMsg = await ctx.reply('🎵 Converting...');
-        const fileId = ctx.message.video?.file_id || ctx.message.document?.file_id;
+        const processingMsg = await ctx.reply("🎵 Converting...");
+        const fileId =
+          ctx.message.video?.file_id || ctx.message.document?.file_id;
 
         // Download file from Telegram
         const file = await ctx.telegram.getFile(fileId);
-        const filePath = `./temp/video_${Date.now()}.mp4`;
+        const crypto = require("crypto");
+
+        const filePath = `./temp/video_${crypto.randomUUID()}.mp4`;
 
         await ctx.telegram.downloadFile(file.file_path, filePath);
 
         const audioPath = await audioService.convertToMP3(filePath);
 
         // Get file size
-        const fs = require('fs-extra');
+        const fs = require("fs-extra");
         const stats = await fs.stat(audioPath);
 
         await ctx.replyWithAudio(
           { source: audioPath },
-          { caption: '✅ MP3 conversion complete!' }
+          { caption: "✅ MP3 conversion complete!" },
         );
 
         // Update request with success
         const processingTime = Date.now() - startTime;
-        await updateRequestStatus(request._id, 'success', null, processingTime);
+        await updateRequestStatus(request._id, "success", null, processingTime);
 
         await deleteFile(filePath);
         await deleteFile(audioPath);
         await ctx.deleteMessage(processingMsg.message_id);
 
         userAwaitingAudioConversion.delete(userId.toString());
-        await logger.info(`MP3 conversion from file completed for user ${userId}`);
+        await logger.info(
+          `MP3 conversion from file completed for user ${userId}`,
+        );
       } catch (error) {
         // Update request with error
         const processingTime = Date.now() - startTime;
-        await updateRequestStatus(request._id, 'failed', error.message, processingTime);
 
-        await ctx.reply('❌ Conversion failed. Please try again.');
+        if (request) {
+          await updateRequestStatus(
+            request._id,
+            "failed",
+            error.message,
+            processingTime,
+          );
+        }
+
+        await ctx.reply("❌ Conversion failed. Please try again.");
         userAwaitingAudioConversion.delete(userId.toString());
-        await logger.error(`MP3 file conversion error for user ${userId}`, error);
+        await logger.error(
+          `MP3 file conversion error for user ${userId}`,
+          error,
+        );
       }
     }
   } else {
@@ -243,7 +301,7 @@ bot.on('message', async (ctx) => {
         await urlHandler.handleUrl(ctx);
       } else {
         await ctx.reply(
-          '❌ Unsupported URL or invalid format. Send an Instagram/TikTok link or use /help for commands.'
+          "❌ Unsupported URL or invalid format. Send an Instagram/TikTok link or use /help for commands.",
         );
       }
     }
