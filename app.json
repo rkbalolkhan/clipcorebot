@@ -1,0 +1,31 @@
+{
+  "name": "ClipCoreBot",
+  "description": "Telegram bot for downloading Instagram Reels and TikTok videos",
+  "repository": "https://github.com/yourusername/clipcorebot",
+  "keywords": [
+    "telegram",
+    "bot",
+    "instagram",
+    "tiktok",
+    "downloader"
+  ],
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    }
+  ],
+  "env": {
+    "BOT_TOKEN": {
+      "description": "Your Telegram Bot Token from BotFather",
+      "required": true
+    },
+    "MONGO_URI": {
+      "description": "MongoDB connection string from MongoDB Atlas",
+      "required": true
+    },
+    "NODE_ENV": {
+      "description": "Node environment",
+      "value": "production"
+    }
+  }
+}

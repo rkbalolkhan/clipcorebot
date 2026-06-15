@@ -1,0 +1,12 @@
+node_modules/
+.env
+.env.local
+.env.*.local
+logs/
+temp/
+*.mp4
+*.mp3
+*.log
+.DS_Store
+*.swp
+*.swo
