@@ -1,11 +1,10 @@
-const User = require('../models/User');
+const User = require("../models/User");
 
 const startCommand = async (ctx) => {
   const telegramId = ctx.from.id.toString();
-  const username = ctx.from.username || 'Unknown';
+  const username = ctx.from.username || ctx.from.first_name || "Unknown";
 
   try {
-    // Save or update user in database
     await User.updateOne(
       { telegramId },
       {
@@ -15,38 +14,58 @@ const startCommand = async (ctx) => {
           lastUsedAt: new Date(),
         },
       },
-      { upsert: true }
+      { upsert: true },
     );
 
     const welcomeMessage = `
-🎬 *Welcome to ClipCoreBot!* 🎬
+🎬 *Welcome to ClipCoreBot*
 
-I help you download and convert your favorite videos instantly.
+Your all-in-one media assistant.
 
-*What can I do?*
-✅ Instagram Reels & Videos
-✅ TikTok Videos  
-✅ Convert to MP3 (extract audio)
-✅ Save to your device
-✅ Fast & Reliable
+━━━━━━━━━━━━━━
 
-*Quick Start:*
-1️⃣ Send any Instagram or TikTok link
-2️⃣ I'll download it for you
-3️⃣ Or use /mp3 to convert videos to audio
+✨ *Supported Platforms*
 
-*Available Commands:*
-/start - Show this message
-/help - Get more information
-/mp3 - Convert video to MP3 audio
+✅ Instagram
+✅ TikTok
+✅ Facebook
+✅ X / Twitter
+✅ YouTube
+✅ MP3 Conversion
 
-Just paste a video link and I'll handle the rest! 🚀
+━━━━━━━━━━━━━━
+
+🚀 *How to Use*
+
+• Send a video link
+• I'll process it automatically
+• Download your media instantly
+
+━━━━━━━━━━━━━━
+
+📌 *Commands*
+
+/help — Help menu
+/mp3 — Convert videos to MP3
+/ping — Check status
+/version — Bot version
+
+━━━━━━━━━━━━━━
+
+❤️ Thanks for using *ClipCoreBot*
     `.trim();
 
-    await ctx.reply(welcomeMessage);
+    await ctx.replyWithPhoto(
+      { source: "./assets/logo.png" },
+      {
+        caption: welcomeMessage,
+        parse_mode: "Markdown",
+      },
+    );
   } catch (error) {
-    console.error('Error in /start command:', error);
-    await ctx.reply('❌ Something went wrong. Please try again.');
+    console.error("Error in /start command:", error);
+
+    await ctx.reply("❌ Something went wrong.\nPlease try again later.");
   }
 };
 
