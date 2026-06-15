@@ -1,14 +1,23 @@
-FROM node:20-bullseye
+FROM node:20-bookworm
 
-# Install system deps and yt-dlp + ffmpeg
-RUN apt-get update && apt-get install -y python3-pip ffmpeg \
-  && pip3 install yt-dlp \
+# Install ffmpeg and Python
+RUN apt-get update && apt-get install -y \
+  python3 \
+  python3-pip \
+  ffmpeg \
   && rm -rf /var/lib/apt/lists/*
 
+# Install latest yt-dlp
+RUN python3 -m pip install --upgrade pip
+RUN python3 -m pip install -U yt-dlp
+
 WORKDIR /app
+
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev
+
 COPY . .
 
 ENV NODE_ENV=production
+
 CMD ["node", "src/index.js"]
