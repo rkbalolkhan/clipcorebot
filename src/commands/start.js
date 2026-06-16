@@ -1,9 +1,10 @@
-const path = require("path");
-const User = require("../models/User");
+const path = require('path');
+const User = require('../models/User');
+const { t } = require('../utils/i18n');
 
-const startCommand = async (ctx) => {
+const startCommand = async (ctx, language = 'en') => {
   const telegramId = ctx.from.id.toString();
-  const username = ctx.from.username || ctx.from.first_name || "Unknown";
+  const username = ctx.from.username || ctx.from.first_name || 'Unknown';
 
   try {
     await User.updateOne(
@@ -18,49 +19,18 @@ const startCommand = async (ctx) => {
       { upsert: true },
     );
 
-    const welcomeMessage = `
-🎬 *Welcome to ClipCoreBot*
-
-Your all-in-one media assistant.
-
-━━━━━━━━━━━━━━
-
-✨ *Supported Platforms*
-
-✅ Instagram
-✅ TikTok
-✅ Facebook
-✅ X / Twitter
-✅ YouTube
-✅ MP3 Conversion
-
-━━━━━━━━━━━━━━
-
-🚀 *How to Use*
-
-• Send a video link
-• I'll process it automatically
-• Download your media instantly
-
-━━━━━━━━━━━━━━
-
-📌 *Commands*
-
-/help — Help menu
-/mp3 — Convert videos to MP3
-/ping — Check status
-/version — Bot version
-
-━━━━━━━━━━━━━━
-
-❤️ Thanks for using *ClipCoreBot*
-    `.trim();
+    const welcomeMessage = t(language, 'startWelcome');
 
     await ctx.replyWithPhoto(
       { source: path.join(__dirname, '../assets/logo.png') },
       {
         caption: welcomeMessage,
-        parse_mode: "Markdown",
+        parse_mode: 'Markdown',
+        reply_markup: {
+          keyboard: [[{ text: '/help' }, { text: '/language' }]],
+          resize_keyboard: true,
+          one_time_keyboard: false,
+        },
       },
     );
   } catch (error) {

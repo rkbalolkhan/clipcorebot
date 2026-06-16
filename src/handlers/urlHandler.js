@@ -1,11 +1,13 @@
 const validateUrl = require('../utils/validateUrl');
-const instagramService = require('../services/instagramService');
-const tiktokService = require('../services/tiktokService');
+const mediaService = require('../services/mediaService');
 const { deleteFile } = require('../utils/deleteFile');
 const User = require('../models/User');
 const Download = require('../models/Download');
 const logger = require('../utils/logger');
+const { t, getPreferredLanguage } = require('../utils/i18n');
 const { saveRequest, updateRequestStatus } = require('../utils/requestTracker');
+
+const SUPPORTED_PLATFORMS = ['instagram', 'tiktok', 'facebook', 'twitter', 'youtube'];
 
 const urlHandler = {
   handleUrl: async (ctx) => {
@@ -26,11 +28,31 @@ const urlHandler = {
         errorMessage: 'Invalid URL',
       });
 
-      await ctx.reply('❌ Unsupported URL. Please send an Instagram or TikTok link.');
+      const language = await getPreferredLanguage(userId);
+      await logger.warn(`Unsupported/invalid URL from user ${userId}: ${url}`);
+      await ctx.reply(t(language, 'invalidLink'));
       return;
     }
 
     const platform = validation.platform;
+
+    // Guard against unexpected/unsupported platforms (double-check)
+    if (!SUPPORTED_PLATFORMS.includes(platform)) {
+      await saveRequest({
+        userId,
+        username,
+        requestType: 'download',
+        platform,
+        url,
+        status: 'failed',
+        errorMessage: 'Unsupported platform',
+      });
+
+      const language = await getPreferredLanguage(userId);
+      await logger.warn(`Unsupported platform requested by user ${userId}: ${platform} - ${url}`);
+      await ctx.reply(t(language, 'invalidLink'));
+      return;
+    }
 
     try {
       // Save initial request
@@ -43,8 +65,8 @@ const urlHandler = {
         status: 'processing',
       });
 
-      // Send processing message
-      const processingMessage = await ctx.reply('⏳ Downloading...');
+      await ctx.sendChatAction('typing');
+      const progressMsg = await ctx.reply(t(language, 'processingStart'));
 
       // Create a download record
       const downloadRecord = new Download({
@@ -59,22 +81,43 @@ const urlHandler = {
 
       try {
         // Download based on platform
-        if (platform === 'instagram') {
-          filePath = await instagramService.download(url);
-        } else if (platform === 'tiktok') {
-          filePath = await tiktokService.download(url);
-        }
+        filePath = await mediaService.download(platform, url);
 
         // Get file size
         const fs = require('fs-extra');
         const stats = await fs.stat(filePath);
         fileSize = stats.size;
 
+        // Max upload guard (configurable via env; default 50 MB)
+        const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES) || 50 * 1024 * 1024;
+        if (fileSize > MAX_UPLOAD_BYTES) {
+          downloadRecord.status = 'failed';
+          downloadRecord.errorMessage = 'File too large';
+
+          const processingTime = Date.now() - startTime;
+          await updateRequestStatus(request._id, 'failed', 'File too large', processingTime);
+          await downloadRecord.save();
+
+          const language = await getPreferredLanguage(userId);
+          await ctx.reply(t(language, 'fileTooLarge'));
+          await deleteFile(filePath);
+          await ctx.deleteMessage(progressMsg.message_id).catch(() => {});
+          await logger.warn(`File too large to upload for user ${userId}: ${filePath} (${fileSize} bytes)`);
+          return;
+        }
+
         // Send video to user
+        await ctx.telegram.editMessageText(
+          ctx.chat.id,
+          progressMsg.message_id,
+          undefined,
+          t(language, 'processingUpdate')
+        );
+
         await ctx.replyWithVideo(
           { source: filePath },
           {
-            caption: `✅ ${platform.toUpperCase()} video downloaded!`,
+            caption: t(language, 'downloadSuccessCaption'),
           }
         );
 
@@ -91,8 +134,8 @@ const urlHandler = {
         // Clean up the file
         await deleteFile(filePath);
 
-        // Delete the "Downloading..." message
-        await ctx.deleteMessage(processingMessage.message_id);
+        // Delete the progress message
+        await ctx.deleteMessage(progressMsg.message_id);
 
         await logger.info(`Successfully downloaded ${platform} video for user ${userId}`);
       } catch (downloadError) {
@@ -108,7 +151,7 @@ const urlHandler = {
         const processingTime = Date.now() - startTime;
         await updateRequestStatus(request._id, 'failed', downloadError.message, processingTime);
 
-        await ctx.reply(`❌ Could not download ${platform} video. Please try again.`);
+        await ctx.reply(t(language, 'downloadFailed'));
         await logger.error(`Failed to download ${platform} video for user ${userId}`, downloadError);
       }
 

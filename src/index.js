@@ -1,8 +1,10 @@
 require('dotenv').config();
+const path = require('path');
 const { Telegraf } = require('telegraf');
 const connectDB = require('./config/db');
 const startCommand = require('./commands/start');
 const helpCommand = require('./commands/help');
+const languageCommand = require('./commands/language');
 const urlHandler = require('./handlers/urlHandler');
 const audioService = require('./services/audioService');
 const { deleteFile } = require('./utils/deleteFile');
@@ -10,6 +12,7 @@ const logger = require('./utils/logger');
 const validateUrl = require('./utils/validateUrl');
 const User = require('./models/User');
 const { saveRequest, updateRequestStatus } = require('./utils/requestTracker');
+const { t, getPreferredLanguage, setPreferredLanguage, SUPPORTED_LANGUAGES } = require('./utils/i18n');
 
 // Initialize bot
 const bot = new Telegraf(process.env.BOT_TOKEN);
@@ -36,6 +39,7 @@ bot.catch((err) => {
 bot.start(async (ctx) => {
   const userId = ctx.from.id.toString();
   const username = ctx.from.username || ctx.from.first_name || 'Unknown';
+  const language = await getPreferredLanguage(userId);
 
   try {
     // Save /start command request
@@ -51,12 +55,13 @@ bot.start(async (ctx) => {
   }
 
   // Call original start command
-  await startCommand(ctx);
+  await startCommand(ctx, language);
 });
 
 bot.help(async (ctx) => {
   const userId = ctx.from.id.toString();
   const username = ctx.from.username || ctx.from.first_name || 'Unknown';
+  const language = await getPreferredLanguage(userId);
 
   try {
     // Save /help command request
@@ -72,13 +77,33 @@ bot.help(async (ctx) => {
   }
 
   // Call original help command
-  await helpCommand(ctx);
+  await helpCommand(ctx, language);
+});
+
+bot.command('language', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const username = ctx.from.username || ctx.from.first_name || 'Unknown';
+
+  try {
+    await saveRequest({
+      userId,
+      username,
+      requestType: 'command',
+      command: '/language',
+      status: 'success',
+    });
+  } catch (error) {
+    console.error('Error saving language command request:', error);
+  }
+
+  await languageCommand(ctx);
 });
 
 // MP3 conversion command
 bot.command('mp3', async (ctx) => {
   const userId = ctx.from.id.toString();
   const username = ctx.from.username || ctx.from.first_name || 'Unknown';
+  const language = await getPreferredLanguage(userId);
 
   try {
     // Save /mp3 command request
@@ -94,17 +119,64 @@ bot.command('mp3', async (ctx) => {
   }
 
   userAwaitingAudioConversion.set(userId, Date.now());
-  await ctx.reply('🎵 Send a video file or Instagram/TikTok link to convert to MP3.');
+  await ctx.sendChatAction('typing');
+  await ctx.replyWithPhoto(
+    { source: path.join(__dirname, 'assets/logo.png') },
+    {
+      caption: t(language, 'mp3ModeCaption'),
+      parse_mode: 'Markdown',
+    }
+  );
 });
 
-// Handle incoming messages
-
-bot.command("ping", async (ctx) => {
-  await ctx.reply("🏓 Pong!");
+bot.command('ping', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const language = await getPreferredLanguage(userId);
+  await ctx.sendChatAction('typing');
+  await ctx.reply(t(language, 'pingResponse'));
 });
 
-bot.command("version", async (ctx) => {
-  await ctx.reply("ClipCoreBot v1.0.0");
+bot.command('version', async (ctx) => {
+  const userId = ctx.from.id.toString();
+  const language = await getPreferredLanguage(userId);
+  await ctx.sendChatAction('typing');
+  await ctx.reply(t(language, 'versionResponse'));
+});
+
+bot.on('callback_query', async (ctx) => {
+  const telegramId = ctx.from.id.toString();
+  const username = ctx.from.username || ctx.from.first_name || 'Unknown';
+  const data = ctx.callbackQuery?.data;
+
+  if (!data || !data.startsWith('lang_')) {
+    return ctx.answerCbQuery();
+  }
+
+  const languageCode = data.replace('lang_', '');
+  const selectedLanguage = SUPPORTED_LANGUAGES[languageCode] ? languageCode : 'en';
+
+  await setPreferredLanguage(telegramId, selectedLanguage);
+
+  try {
+    await saveRequest({
+      userId: telegramId,
+      username,
+      requestType: 'command',
+      command: '/language',
+      status: 'success',
+      extraData: { selectedLanguage },
+    });
+  } catch (error) {
+    console.error('Error saving language selection request:', error);
+  }
+
+  await ctx.answerCbQuery();
+  await ctx.editMessageText(
+    t(selectedLanguage, 'languageSet', { language: SUPPORTED_LANGUAGES[selectedLanguage] }),
+    {
+      parse_mode: 'Markdown',
+    }
+  );
 });
 
 bot.on('message', async (ctx) => {
@@ -130,6 +202,8 @@ bot.on('message', async (ctx) => {
 
   // Check if user is awaiting audio conversion
   if (userAwaitingAudioConversion.has(userId.toString())) {
+    const language = await getPreferredLanguage(userId.toString());
+
     // Handle audio conversion for URL
     if (ctx.message.text) {
       const validation = validateUrl(ctx.message.text);
@@ -140,15 +214,13 @@ bot.on('message', async (ctx) => {
         await saveRequest({
           userId: userId.toString(),
           username,
-          requestType: "mp3_conversion",
+          requestType: 'mp3_conversion',
           url: ctx.message.text,
-          status: "failed",
-          errorMessage: "Invalid URL",
+          status: 'failed',
+          errorMessage: 'Invalid URL',
         });
 
-        await ctx.reply(
-          "❌ Invalid URL. Please send an Instagram or TikTok link.",
-        );
+        await ctx.reply(t(language, 'invalidLink'));
         userAwaitingAudioConversion.delete(userId.toString());
         return;
       }
@@ -157,44 +229,32 @@ bot.on('message', async (ctx) => {
 
       try {
         // Save initial request
-        const request = await saveRequest({
+        request = await saveRequest({
           userId: userId.toString(),
           username,
-          requestType: "mp3_conversion",
+          requestType: 'mp3_conversion',
           platform: validation.platform,
           url: ctx.message.text,
-          status: "processing",
+          status: 'processing',
         });
 
-        const processingMsg = await ctx.reply(
-          "⏳ Downloading and converting...",
+        const processingMsg = await ctx.reply(t(language, 'processingStart'));
+
+        const videoPath = await require('./services/mediaService').download(
+          validation.platform,
+          ctx.message.text,
         );
-
-        // Import services
-        const instagramService = require("./services/instagramService");
-        const tiktokService = require("./services/tiktokService");
-
-        let videoPath;
-        if (validation.platform === "instagram") {
-          videoPath = await instagramService.download(ctx.message.text);
-        } else {
-          videoPath = await tiktokService.download(ctx.message.text);
-        }
 
         const audioPath = await audioService.convertToMP3(videoPath);
 
-        // Get file size
-        const fs = require("fs-extra");
-        const stats = await fs.stat(audioPath);
-
         await ctx.replyWithAudio(
           { source: audioPath },
-          { caption: "✅ MP3 conversion complete!" },
+          { caption: t(language, 'downloadSuccessCaption') },
         );
 
         // Update request with success
         const processingTime = Date.now() - startTime;
-        await updateRequestStatus(request._id, "success", null, processingTime);
+        await updateRequestStatus(request._id, 'success', null, processingTime);
 
         await deleteFile(videoPath);
         await deleteFile(audioPath);
@@ -209,13 +269,13 @@ bot.on('message', async (ctx) => {
         if (request) {
           await updateRequestStatus(
             request._id,
-            "failed",
+            'failed',
             error.message,
             processingTime,
           );
         }
 
-        await ctx.reply("❌ Conversion failed. Please try again.");
+        await ctx.reply(t(language, 'downloadFailed'));
         userAwaitingAudioConversion.delete(userId.toString());
         await logger.error(`MP3 conversion error for user ${userId}`, error);
       }
@@ -236,13 +296,13 @@ bot.on('message', async (ctx) => {
           status: "processing",
         });
 
-        const processingMsg = await ctx.reply("🎵 Converting...");
+        const processingMsg = await ctx.reply(t(language, 'processingStart'));
         const fileId =
           ctx.message.video?.file_id || ctx.message.document?.file_id;
 
         // Download file from Telegram
         const file = await ctx.telegram.getFile(fileId);
-        const crypto = require("crypto");
+        const crypto = require('crypto');
 
         const filePath = `./temp/video_${crypto.randomUUID()}.mp4`;
 
@@ -256,7 +316,7 @@ bot.on('message', async (ctx) => {
 
         await ctx.replyWithAudio(
           { source: audioPath },
-          { caption: "✅ MP3 conversion complete!" },
+          { caption: t(language, 'downloadSuccessCaption') },
         );
 
         // Update request with success
@@ -284,7 +344,7 @@ bot.on('message', async (ctx) => {
           );
         }
 
-        await ctx.reply("❌ Conversion failed. Please try again.");
+        await ctx.reply(t(language, 'downloadFailed'));
         userAwaitingAudioConversion.delete(userId.toString());
         await logger.error(
           `MP3 file conversion error for user ${userId}`,
@@ -296,13 +356,12 @@ bot.on('message', async (ctx) => {
     // Handle regular message (URL)
     if (ctx.message.text) {
       const validation = validateUrl(ctx.message.text);
+      const language = await getPreferredLanguage(userId.toString());
 
       if (validation.valid) {
         await urlHandler.handleUrl(ctx);
       } else {
-        await ctx.reply(
-          "❌ Unsupported URL or invalid format. Send an Instagram/TikTok link or use /help for commands.",
-        );
+        await ctx.reply(t(language, 'invalidLink'));
       }
     }
   }

@@ -7,7 +7,7 @@ const downloadSchema = new mongoose.Schema({
   },
   platform: {
     type: String,
-    enum: ['instagram', 'tiktok'],
+    enum: ['instagram', 'tiktok', 'facebook', 'twitter', 'youtube'],
     required: true,
   },
   url: {

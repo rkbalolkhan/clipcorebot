@@ -16,7 +16,7 @@ const requestSchema = new mongoose.Schema({
   },
   platform: {
     type: String,
-    enum: ['instagram', 'tiktok', 'youtube', 'local', null],
+    enum: ['instagram', 'tiktok', 'youtube', 'facebook', 'twitter', 'local', null],
     default: null,
   },
   url: {
@@ -24,7 +24,7 @@ const requestSchema = new mongoose.Schema({
   },
   command: {
     type: String,
-    enum: ['/start', '/help', '/mp3', null],
+    enum: ['/start', '/help', '/mp3', '/language', null],
     default: null,
   },
   status: {
