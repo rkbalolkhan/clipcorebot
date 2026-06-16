@@ -1,3 +1,4 @@
+const path = require("path");
 const User = require("../models/User");
 
 const startCommand = async (ctx) => {
@@ -56,7 +57,7 @@ Your all-in-one media assistant.
     `.trim();
 
     await ctx.replyWithPhoto(
-      { source: "../assets/logo.png" },
+      { source: path.join(__dirname, '../assets/logo.png') },
       {
         caption: welcomeMessage,
         parse_mode: "Markdown",
