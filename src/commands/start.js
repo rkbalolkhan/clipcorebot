@@ -56,7 +56,7 @@ Your all-in-one media assistant.
     `.trim();
 
     await ctx.replyWithPhoto(
-      { source: "./assets/logo.png" },
+      { source: "../assets/logo.png" },
       {
         caption: welcomeMessage,
         parse_mode: "Markdown",
